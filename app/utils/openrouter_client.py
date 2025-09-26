@@ -4,6 +4,17 @@ from openai import OpenAI
 from dotenv import load_dotenv, find_dotenv
 
 from .logger import setup_logger
+from constants.prompts import (
+    CLASSIFICATION_SYSTEM_MESSAGE,
+    SUMMARIZATION_SYSTEM_MESSAGE,
+    CLASSIFICATION_PROMPT_TEMPLATE,
+    SUMMARIZATION_PROMPT_TEMPLATE,
+    DEFAULT_CLASSIFICATION_TEMPERATURE,
+    DEFAULT_SUMMARIZATION_TEMPERATURE,
+    DEFAULT_CLASSIFICATION_MAX_TOKENS,
+    DEFAULT_SUMMARIZATION_MAX_TOKENS,
+    CHUNK_SEPARATOR
+)
 
 # Load environment variables from .env file
 load_dotenv(find_dotenv())
@@ -58,35 +69,21 @@ class OpenRouterClient:
             
             # Create the classification prompt
             categories = ", ".join(routing_rules.keys())
-            prompt = f"""
-Analyze the following document text and classify it into one of these categories: {categories}
-
-Document text:
-{text}
-
-Based on the content, determine:
-1. Which category this document belongs to
-2. Your confidence level (0.0 to 1.0)
-3. A brief summary of the document (2-3 sentences)
-
-Respond in JSON format with the following structure:
-{{
-    "category": "exact category name from the list",
-    "confidence": confidence_score,
-    "summary": "brief summary of the document"
-}}
-"""
+            prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(
+                categories=categories,
+                text=text
+            )
             
             logger.info(f"Classifying document with model: {model}")
             
             response = self.client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "You are a document classification expert. Always respond with valid JSON."},
+                    {"role": "system", "content": CLASSIFICATION_SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,  # Low temperature for consistent results
-                max_tokens=4000 # Increased to prevent JSON truncation
+                temperature=DEFAULT_CLASSIFICATION_TEMPERATURE,
+                max_tokens=DEFAULT_CLASSIFICATION_MAX_TOKENS
             )
             
             result_text = response.choices[0].message.content.strip()
@@ -179,34 +176,41 @@ Respond in JSON format with the following structure:
             model = model or self.default_model
             
             # Combine chunks with separators
-            combined_text = "\n\n--- CHUNK SEPARATOR ---\n\n".join(chunks)
+            combined_text = CHUNK_SEPARATOR.join(chunks)
             
-            prompt = f"""
-Analyze the following document chunks and provide a comprehensive summary that captures:
-1. The document type and purpose
-2. Key information and topics covered
-3. Important details that would help classify this document
-
-Document chunks:
-{combined_text}
-
-Provide a clear, concise summary in 3-4 sentences that would help classify this document.
-"""
+            logger.debug(f"Combined text length: {len(combined_text)}, first 200 chars: {combined_text[:200]!r}")
+            
+            prompt = SUMMARIZATION_PROMPT_TEMPLATE.format(
+                combined_text=combined_text
+            )
             
             logger.info(f"Summarizing {len(chunks)} chunks with model: {model}")
             
             response = self.client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "You are a document analysis expert. Provide clear, concise summaries."},
+                    {"role": "system", "content": SUMMARIZATION_SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
-                max_tokens=800
+                temperature=DEFAULT_SUMMARIZATION_TEMPERATURE,
+                max_tokens=DEFAULT_SUMMARIZATION_MAX_TOKENS
             )
             
-            summary = response.choices[0].message.content.strip()
-            logger.info("Successfully summarized document chunks")
+            raw_content = response.choices[0].message.content
+            logger.debug(f"Raw API response content: {raw_content!r}")
+            
+            if raw_content is None:
+                logger.error("API returned None content for summarization")
+                return "Unable to summarize document - API returned empty response"
+            
+            summary = raw_content.strip()
+            logger.debug(f"Cleaned summary: {summary[:500]!r}")
+            
+            if not summary:
+                logger.error("API returned empty content after stripping")
+                return "Unable to summarize document - empty response from AI model"
+            
+            logger.info(f"Successfully summarized document chunks, summary length: {len(summary)}")
             return summary
             
         except Exception as e:

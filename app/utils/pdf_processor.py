@@ -143,7 +143,7 @@ class PDFProcessor:
                         end = max(0, end - 50) + space_pos
             
             chunk = text[start:end].strip()
-            if chunk:
+            if chunk and len(chunk) > 50 and len(chunk.split()) > 5:  # Filter out very small or sparse chunks
                 chunks.append(chunk)
             
             # Move start position with overlap

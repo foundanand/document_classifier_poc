@@ -104,63 +104,19 @@ class DocumentClassifier:
             # Split document into chunks
             chunks = pdf_processor.chunk_text(text)
             
-            # For very large documents, summarize chunks first
-            if len(chunks) > 10:
-                logger.info(f"Document has {len(chunks)} chunks, creating summary first")
-                
-                # Take representative chunks (first few, middle few, last few)
-                representative_chunks = []
-                chunk_count = len(chunks)
-                
-                # First 3 chunks
-                representative_chunks.extend(chunks[:3])
-                
-                # Middle 2 chunks
-                mid_start = max(3, chunk_count // 2 - 1)
-                mid_end = min(chunk_count - 3, chunk_count // 2 + 1)
-                representative_chunks.extend(chunks[mid_start:mid_end])
-                
-                # Last 3 chunks
-                representative_chunks.extend(chunks[-3:])
-                
-                # Remove duplicates while preserving order
-                seen = set()
-                unique_chunks = []
-                for chunk in representative_chunks:
-                    if chunk not in seen:
-                        seen.add(chunk)
-                        unique_chunks.append(chunk)
-                
-                logger.info(f"Using {len(unique_chunks)} representative chunks for analysis")
-                
-                # Get summary of representative chunks
-                openrouter_client = get_openrouter_client()
-                summary_text = await openrouter_client.summarize_chunks(unique_chunks)
-                
-                # Classify based on the summary
-                classification_result = await openrouter_client.classify_document(
-                    summary_text, self.routing_rules
-                )
-                
-            else:
-                # For moderately large documents, use first few chunks
-                logger.info(f"Using first {min(5, len(chunks))} chunks for classification")
-                analysis_chunks = chunks[:5]
-                
-                # Combine chunks for analysis
-                combined_text = "\n\n".join(analysis_chunks)
-                
-                # If still too large, summarize first
-                openrouter_client = get_openrouter_client()
-                if len(combined_text) > 8000:
-                    summary_text = await openrouter_client.summarize_chunks(analysis_chunks)
-                    classification_result = await openrouter_client.classify_document(
-                        summary_text, self.routing_rules
-                    )
-                else:
-                    classification_result = await openrouter_client.classify_document(
-                        combined_text, self.routing_rules
-                    )
+            # Use first 5 chunks for classification
+            logger.info(f"Document has {len(chunks)} chunks, using first 5 chunks for classification")
+            analysis_chunks = chunks[:5]
+            
+            # Combine chunks for analysis
+            combined_text = "\n\n".join(analysis_chunks)
+            logger.info(f"Combined text length: {len(combined_text)} characters")
+            
+            # Classify directly using the combined chunks
+            openrouter_client = get_openrouter_client()
+            classification_result = await openrouter_client.classify_document(
+                combined_text, self.routing_rules
+            )
             
             logger.info("Large document classification completed successfully")
             return classification_result
